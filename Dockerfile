@@ -31,18 +31,21 @@ ENV PATH="${GOPATH}/bin:${PATH}"
 # Install garble for obfuscated agent builds (requires Go 1.25+)
 RUN go install mvdan.cc/garble@latest
 
-# Copy package files
-COPY Overlord-Server/package.json Overlord-Server/bun.lockb* ./
+# Copy package files and lockfile
+COPY Overlord-Server/package.json Overlord-Server/bun.lock* ./
 
 # Install dependencies
 RUN bun install --frozen-lockfile
 
 # Copy source code and client code (needed for builds)
 COPY Overlord-Server/ ./
-COPY Overlord-Client/ ../Overlord-Client/
+COPY Overlord-Client/ ./Overlord-Client/
 
 # Create necessary directories
 RUN mkdir -p certs public data
+
+# Build production server bundle and ensure Tailwind CSS is present
+RUN bun run build && test -s ./public/assets/tailwind.css
 
 # Expose the default port
 EXPOSE 5173
@@ -53,5 +56,5 @@ ENV HOST=0.0.0.0
 ENV DATA_DIR=/app/data
 ENV NODE_ENV=production
 
-# Run the server
-CMD ["bun", "run", "src/index.ts"]
+# Run the production build
+CMD ["bun", "run", "dist/index.js"]
