@@ -37,7 +37,7 @@ export interface Config {
 const DEFAULT_CONFIG: Config = {
   auth: {
     username: "admin",
-    password: "",
+    password: "admin",
     jwtSecret: "",
     agentToken: "",
   },
@@ -170,13 +170,6 @@ export function loadConfig(): Config {
     passwordFromConfig ||
     savedSecrets.auth?.bootstrapPassword ||
     DEFAULT_CONFIG.auth.password;
-  if (!finalBootstrapPassword) {
-    finalBootstrapPassword = generateRandomSecret(28);
-    saveChanged = true;
-    logger.info(
-      "No initial admin password provided, generated bootstrap password in save.json",
-    );
-  }
 
   const keywordsEnv = process.env.OVERLORD_NOTIFICATION_KEYWORDS;
   const keywordsFromEnv = keywordsEnv

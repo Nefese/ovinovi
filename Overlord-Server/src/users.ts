@@ -85,7 +85,7 @@ if (userCount.count === 0) {
     `[users] Bootstrap login credentials -> username: ${initialUsername} | password: ${initialPassword}`,
   );
   logger.warn(
-    "[users] ⚠️  SECURITY WARNING: Rotate the bootstrap password after first login. If it was auto-generated, retrieve it from data/save.json.",
+    "[users] SECURITY WARNING: Rotate the bootstrap password after first login. Default bootstrap credentials are admin/admin unless overridden by configuration.",
   );
 }
 

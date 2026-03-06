@@ -22,10 +22,12 @@ Overlord generates them and persists them to `data/save.json` (inside Docker:
 
 - JWT signing secret
 - Agent auth token
-- Initial admin bootstrap password
+
+Initial bootstrap login defaults to username `admin` and password `admin`
+unless overridden with `OVERLORD_USER` / `OVERLORD_PASS`.
 
 Keep `save.json` private and backed up. Use values from that file if you need
-to recover bootstrap access.
+to recover JWT or agent token values.
 
 to update run
 
