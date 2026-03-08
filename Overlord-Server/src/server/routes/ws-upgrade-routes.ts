@@ -163,6 +163,24 @@ export async function handleWsUpgradeRoutes(
     return new Response("Upgrade failed", { status: 500 });
   }
 
+  const voiceMatch = url.pathname.match(/^\/api\/clients\/(.+)\/voice\/ws$/);
+  if (voiceMatch) {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (user.role === "viewer") {
+      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+    const clientId = voiceMatch[1];
+    const ip = server.requestIP(req)?.address || "";
+    if (server.upgrade(req, { data: { role: "voice_viewer", clientId, ip, userRole: user.role } })) {
+      return new Response();
+    }
+    return new Response("Upgrade failed", { status: 500 });
+  }
+
   if (req.method === "GET" && url.pathname === "/api/notifications/ws") {
     const user = await authenticateRequest(req);
     if (!user) {

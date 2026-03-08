@@ -32,9 +32,16 @@ type PendingScript = {
   timeout: NodeJS.Timeout;
 };
 
+type PendingCommandReply = {
+  resolve: (result: { ok: boolean; message?: string }) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+};
+
 type ClientRouteDeps = {
   CORS_HEADERS: Record<string, string>;
   pendingScripts: Map<string, PendingScript>;
+  pendingCommandReplies: Map<string, PendingCommandReply>;
 };
 
 export async function handleClientRoutes(
@@ -377,6 +384,88 @@ export async function handleClientRoutes(
             return Response.json(result);
           } catch (error: any) {
             return Response.json({ ok: false, error: error.message }, { status: 500 });
+          }
+        } else if (action === "support_chat") {
+          const message = typeof body?.message === "string" ? body.message.trim() : "";
+          const requireReply = body?.requireReply !== false;
+          const operator = typeof user?.username === "string" ? user.username.trim() : "";
+
+          if (!message) {
+            return Response.json({ ok: false, error: "Message is required" }, { status: 400 });
+          }
+          if (message.length > 1200) {
+            return Response.json({ ok: false, error: "Message too long (max 1200 characters)" }, { status: 400 });
+          }
+
+          const cmdId = uuidv4();
+          const waitTimeoutMs = 4 * 60 * 1000;
+          let replyPromise: Promise<{ ok: boolean; message?: string }> | null = null;
+
+          if (requireReply) {
+            replyPromise = new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                deps.pendingCommandReplies.delete(cmdId);
+                reject(new Error("Support chat reply timed out"));
+              }, waitTimeoutMs);
+                deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout });
+            });
+          }
+
+          target.ws.send(
+            encodeMessage({
+              type: "command",
+              commandType: "support_chat",
+              id: cmdId,
+              payload: {
+                message,
+                requireReply,
+                operator,
+              },
+            }),
+          );
+          metrics.recordCommand("support_chat");
+
+          if (!replyPromise) {
+            return Response.json({ ok: true });
+          }
+
+          try {
+            const reply = await replyPromise;
+            return Response.json({ ok: reply.ok, response: reply.message || "" }, { headers: deps.CORS_HEADERS });
+          } catch (error: any) {
+            return Response.json({ ok: false, error: error.message || "Support chat failed" }, { status: 504 });
+          }
+        } else if (action === "voice_capabilities") {
+          const cmdId = uuidv4();
+          const replyPromise: Promise<{ ok: boolean; message?: string }> = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              deps.pendingCommandReplies.delete(cmdId);
+              reject(new Error("Voice capability probe timed out"));
+            }, 30_000);
+            deps.pendingCommandReplies.set(cmdId, { resolve, reject, timeout });
+          });
+
+          target.ws.send(
+            encodeMessage({
+              type: "command",
+              commandType: "voice_capabilities",
+              id: cmdId,
+            }),
+          );
+
+          try {
+            const result = await replyPromise;
+            let caps: any = null;
+            if (result.message) {
+              try {
+                caps = JSON.parse(result.message);
+              } catch {
+                caps = null;
+              }
+            }
+            return Response.json({ ok: result.ok, capabilities: caps, response: result.message || "" }, { headers: deps.CORS_HEADERS });
+          } catch (error: any) {
+            return Response.json({ ok: false, error: error.message || "Voice capability probe failed" }, { status: 504 });
           }
         } else if (action === "silent_exec") {
           if (user.role !== "admin") {

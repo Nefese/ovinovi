@@ -9,7 +9,8 @@ export type SocketRole =
   | "process_viewer"
   | "notifications_viewer"
   | "keylogger_viewer"
-  | "proxy_viewer";
+  | "proxy_viewer"
+  | "voice_viewer";
 
 export type SocketData = {
   role: SocketRole;
@@ -56,6 +57,13 @@ export type NotificationsViewer = {
 };
 
 export type KeyloggerViewer = {
+  id: string;
+  clientId: string;
+  viewer: ServerWebSocket<SocketData>;
+  createdAt: number;
+};
+
+export type VoiceViewer = {
   id: string;
   clientId: string;
   viewer: ServerWebSocket<SocketData>;

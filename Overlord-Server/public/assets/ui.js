@@ -5,6 +5,7 @@ menu.className =
 menu.style.maxHeight = "min(70vh, 520px)";
 menu.innerHTML = `
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-emerald-800 bg-emerald-900/50 hover:bg-emerald-800/70 text-emerald-100 flex items-center gap-2" data-open="console"><i class="fa-solid fa-terminal"></i> Open Console</button>
+  <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-teal-800 bg-teal-900/45 hover:bg-teal-800/65 text-teal-100 flex items-center gap-2" data-open="voice"><i class="fa-solid fa-headset"></i> Voice Support</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-purple-800 bg-purple-900/50 hover:bg-purple-800/70 text-purple-100 flex items-center gap-2" data-open="remotedesktop"><i class="fa-solid fa-desktop"></i> Remote Desktop</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-violet-800 bg-violet-900/50 hover:bg-violet-800/70 text-violet-100 flex items-center gap-2" data-open="hvnc"><i class="fa-solid fa-ghost"></i> HVNC</button>
   <button class="w-full text-left px-3 py-2.5 mb-1 rounded-lg border border-blue-800 bg-blue-900/50 hover:bg-blue-800/70 text-blue-100 flex items-center gap-2" data-open="files"><i class="fa-solid fa-folder-tree"></i> File Browser</button>

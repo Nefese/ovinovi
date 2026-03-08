@@ -637,6 +637,12 @@ menu.addEventListener("click", async (e) => {
   }
   const action = target.dataset.action;
 
+  if (open === "voice") {
+    window.open(`/voice?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+
   if (action === "uninstall") {
     if (
       !confirm(

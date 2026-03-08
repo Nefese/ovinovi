@@ -112,6 +112,30 @@ export async function handlePageRoutes(
     }
   }
 
+  if (req.method === "GET" && url.pathname === "/voice") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return serveLoginOrUnauthorized(deps);
+    }
+
+    const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
+    if (maybeChange) return maybeChange;
+
+    if (user.role === "viewer") {
+      return new Response("Forbidden: Viewers cannot access interactive features", { status: 403 });
+    }
+
+    const clientId = (url.searchParams.get("clientId") || "").trim();
+    if (!canAccessClientPage(user.userId, user.role, clientId)) {
+      return new Response("Forbidden: Client access denied", { status: 403 });
+    }
+
+    const file = Bun.file(`${deps.PUBLIC_ROOT}/voice.html`);
+    if (await file.exists()) {
+      return new Response(file, { headers: deps.secureHeaders(deps.mimeType("voice.html")) });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/metrics") {
     const user = await authenticateRequest(req);
     if (!user) {

