@@ -21,7 +21,9 @@ func main() {
 	releaseMutex, ok, err := mutex.Acquire(cfg.Mutex)
 	if err != nil {
 		log.Printf("[mutex] failed to initialize mutex: %v", err)
-		return
+		log.Printf("[mutex] continuing without mutex protection")
+		releaseMutex = func() {}
+		ok = true
 	}
 	if !ok {
 		log.Printf("[mutex] another instance is already running; exiting")
