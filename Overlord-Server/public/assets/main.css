@@ -1588,6 +1588,14 @@ mark.search-current {
   font-weight: 600;
 }
 
+.server-version-number-mismatch {
+  color: #f87171;
+  text-shadow:
+    0 0 8px rgba(248, 113, 113, 0.65),
+    0 0 16px rgba(239, 68, 68, 0.45);
+  font-weight: 600;
+}
+
 #filter-status,
 #filter-os,
 #sort {

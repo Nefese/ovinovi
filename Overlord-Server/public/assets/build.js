@@ -16,6 +16,23 @@ const pluginsLink = document.getElementById("plugins-link");
 const rawServerListCheckbox = document.getElementById("raw-server-list");
 const serverUrlInput = document.getElementById("server-url");
 
+let currentServerVersion = null;
+
+async function loadServerVersion() {
+  try {
+    const res = await fetch("/api/version", { credentials: "include" });
+    if (!res.ok) {
+      currentServerVersion = null;
+      return;
+    }
+    const payload = await res.json();
+    const version = typeof payload?.version === "string" ? payload.version.trim() : "";
+    currentServerVersion = version || null;
+  } catch {
+    currentServerVersion = null;
+  }
+}
+
 function getDefaultServerUrlPlaceholder(isRawList) {
   const isHttps = window.location.protocol === "https:";
   const host = window.location.host;
@@ -126,7 +143,8 @@ async function init() {
         '<i class="fa-solid fa-lock"></i> <span>Build requires admin/operator role</span>';
     }
 
-    loadSavedBuilds();
+    await loadServerVersion();
+    await loadSavedBuilds();
   } catch (err) {
     console.error("Failed to fetch user info:", err);
     window.location.href = "/login.html";
@@ -547,6 +565,11 @@ function formatStubVersion(version) {
   return "unknown (legacy build)";
 }
 
+function isVersionMismatch(versionValue) {
+  if (!currentServerVersion) return false;
+  return versionValue !== currentServerVersion;
+}
+
 function saveBuildToStorage(buildId, buildData) {
   try {
     const builds = JSON.parse(localStorage.getItem("overlord_builds") || "[]");
@@ -747,7 +770,9 @@ function showBuildFilesForContainer(build, containerId, timerId) {
     const platformText = document.createElement("span");
     platformText.textContent = `${file.platform} | `;
     const versionText = document.createElement("span");
-    versionText.className = "server-version-number";
+    versionText.className = isVersionMismatch(versionValue)
+      ? "server-version-number-mismatch"
+      : "server-version-number";
     versionText.textContent =
       versionValue === "unknown (legacy build)" ? versionValue : `v${versionValue}`;
     filePlatform.appendChild(platformText);
