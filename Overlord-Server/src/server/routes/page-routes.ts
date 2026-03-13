@@ -203,6 +203,10 @@ export async function handlePageRoutes(
       return serveLoginOrUnauthorized(deps);
     }
 
+    if (user.role !== "admin" && user.role !== "operator") {
+      return new Response("Forbidden", { status: 403 });
+    }
+
     const maybeChange = await serveChangePasswordIfRequired(deps, user.userId);
     if (maybeChange) return maybeChange;
 

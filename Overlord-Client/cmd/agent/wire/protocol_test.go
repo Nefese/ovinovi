@@ -57,6 +57,113 @@ func TestHelloMarshaling(t *testing.T) {
 	}
 }
 
+func TestHelloBuildTagMarshaling(t *testing.T) {
+	t.Run("with build tag", func(t *testing.T) {
+		hello := Hello{
+			Type:     "hello",
+			ID:       "test-id",
+			HWID:     "test-hwid",
+			Host:     "test-host",
+			OS:       "test-os",
+			Arch:     "test-arch",
+			Version:  "1.0.0",
+			User:     "test-user",
+			BuildTag: "abc-123-def-456",
+		}
+
+		data, err := msgpack.Marshal(hello)
+		if err != nil {
+			t.Fatalf("Failed to marshal Hello with BuildTag: %v", err)
+		}
+
+		var decoded Hello
+		if err := msgpack.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Failed to unmarshal Hello with BuildTag: %v", err)
+		}
+
+		if decoded.BuildTag != "abc-123-def-456" {
+			t.Errorf("BuildTag mismatch: got %q, want %q", decoded.BuildTag, "abc-123-def-456")
+		}
+		if decoded.ID != hello.ID {
+			t.Errorf("ID mismatch: got %s, want %s", decoded.ID, hello.ID)
+		}
+	})
+
+	t.Run("without build tag (omitempty)", func(t *testing.T) {
+		hello := Hello{
+			Type:    "hello",
+			ID:      "test-id",
+			HWID:    "test-hwid",
+			Host:    "test-host",
+			OS:      "test-os",
+			Arch:    "test-arch",
+			Version: "1.0.0",
+			User:    "test-user",
+		}
+
+		data, err := msgpack.Marshal(hello)
+		if err != nil {
+			t.Fatalf("Failed to marshal Hello without BuildTag: %v", err)
+		}
+
+		// Verify buildTag key is not present in the wire data (omitempty)
+		if bytes.Contains(data, []byte("buildTag")) {
+			t.Error("Expected buildTag to be omitted from wire data when empty")
+		}
+
+		var decoded Hello
+		if err := msgpack.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Failed to unmarshal Hello without BuildTag: %v", err)
+		}
+
+		if decoded.BuildTag != "" {
+			t.Errorf("BuildTag should be empty, got %q", decoded.BuildTag)
+		}
+	})
+
+	t.Run("server-side decode without build tag field", func(t *testing.T) {
+		// Simulate an older client that doesn't send buildTag at all
+		type OldHello struct {
+			Type    string `msgpack:"type"`
+			ID      string `msgpack:"id"`
+			HWID    string `msgpack:"hwid"`
+			Host    string `msgpack:"host"`
+			OS      string `msgpack:"os"`
+			Arch    string `msgpack:"arch"`
+			Version string `msgpack:"version"`
+			User    string `msgpack:"user"`
+		}
+
+		old := OldHello{
+			Type:    "hello",
+			ID:      "old-client",
+			HWID:    "old-hwid",
+			Host:    "old-host",
+			OS:      "windows",
+			Arch:    "amd64",
+			Version: "0.9.0",
+			User:    "old-user",
+		}
+
+		data, err := msgpack.Marshal(old)
+		if err != nil {
+			t.Fatalf("Failed to marshal OldHello: %v", err)
+		}
+
+		var decoded Hello
+		if err := msgpack.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Failed to unmarshal OldHello into Hello: %v", err)
+		}
+
+		if decoded.BuildTag != "" {
+			t.Errorf("BuildTag should default to empty for old client, got %q", decoded.BuildTag)
+		}
+		if decoded.ID != "old-client" {
+			t.Errorf("ID mismatch: got %s, want old-client", decoded.ID)
+		}
+	})
+}
+
 func TestPingPongMarshaling(t *testing.T) {
 	ping := Ping{
 		Type: "ping",

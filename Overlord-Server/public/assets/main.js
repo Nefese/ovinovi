@@ -186,7 +186,7 @@ async function loadCurrentUser() {
           usersLink?.classList.remove("hidden");
         }
 
-        if (currentUser.role === "admin" || currentUser.role === "operator") {
+        if (currentUser.role === "admin" || currentUser.role === "operator" || currentUser.canBuild) {
           buildLink?.classList.remove("hidden");
         }
 

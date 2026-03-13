@@ -68,6 +68,10 @@ async function getCurrentUser() {
         document.getElementById("build-link")?.classList.remove("hidden");
       }
 
+      if (currentUser.canBuild) {
+        document.getElementById("build-link")?.classList.remove("hidden");
+      }
+
       if (currentUser.role !== "admin") {
         alert("Access denied. Admin role required.");
         window.location.href = "/";
@@ -149,6 +153,13 @@ function renderUsers() {
       </td>
       <td class="px-6 py-4">
         ${getRoleBadge(user.role)}
+        ${user.role !== "admin" ? `
+          <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${user.can_build ? 'bg-green-900/30 text-green-300 border border-green-800 hover:bg-green-900/50' : 'bg-slate-700/30 text-slate-500 border border-slate-700 hover:bg-slate-700/50'}" 
+            data-action="toggle-build" data-user-id="${user.id}" data-username="${escapeHtml(user.username)}" data-can-build="${user.can_build ? 1 : 0}"
+            title="${user.can_build ? 'Can build (click to revoke)' : 'Cannot build (click to grant)'}">
+            <i class="fa-solid fa-hammer mr-1"></i>${user.can_build ? 'Build' : 'No Build'}
+          </span>
+        ` : ''}
       </td>
       <td class="px-6 py-4 text-sm text-slate-400">
         ${formatDate(user.created_at)}
@@ -234,6 +245,15 @@ function attachActionListeners() {
   }
 
   const listener = (e) => {
+    const toggleBuild = e.target.closest("[data-action='toggle-build']");
+    if (toggleBuild) {
+      const userId = parseInt(toggleBuild.dataset.userId);
+      const username = toggleBuild.dataset.username;
+      const canBuild = toggleBuild.dataset.canBuild === "1";
+      toggleBuildPermission(userId, username, canBuild);
+      return;
+    }
+
     const btn = e.target.closest(".user-action-btn");
     if (!btn) return;
 
@@ -427,6 +447,30 @@ window.deleteUser = async function (userId, username) {
 window.configureClientAccess = async function (userId, username, role) {
   const params = new URLSearchParams({ userId: String(userId) });
   window.location.href = `/user-client-access?${params.toString()}`;
+};
+
+window.toggleBuildPermission = async function (userId, username, currentCanBuild) {
+  const newVal = !currentCanBuild;
+  if (!confirm(`${newVal ? 'Grant' : 'Revoke'} build permission for ${username}?`)) return;
+
+  try {
+    const res = await fetch(`/api/users/${userId}/can-build`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canBuild: newVal }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      await loadUsers();
+    } else {
+      alert(data.error || "Failed to update build permission");
+    }
+  } catch (err) {
+    console.error("Toggle build permission error:", err);
+    alert("Network error. Please try again.");
+  }
 };
 
 getCurrentUser();

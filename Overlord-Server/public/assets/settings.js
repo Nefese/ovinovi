@@ -19,6 +19,9 @@ const prefsForm = document.getElementById("prefs-form");
 const prefNotificationsInput = document.getElementById("pref-notifications");
 const prefRefreshSecondsInput = document.getElementById("pref-refresh-seconds");
 
+const myTelegramChatIdInput = document.getElementById("my-telegram-chat-id");
+const saveMyTelegramBtn = document.getElementById("save-my-telegram");
+
 const bansTableBody = document.getElementById("bans-table-body");
 const bansPermissionNote = document.getElementById("bans-permission-note");
 const refreshBansBtn = document.getElementById("refresh-bans-btn");
@@ -447,6 +450,46 @@ async function runCertbotAutoSetup() {
   }
 }
 
+async function loadMyTelegram() {
+  if (!myTelegramChatIdInput) return;
+  if (currentUser?.telegramChatId) {
+    myTelegramChatIdInput.value = currentUser.telegramChatId;
+  } else {
+    try {
+      const res = await fetch("/api/settings/telegram", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        myTelegramChatIdInput.value = data.telegramChatId || "";
+      }
+    } catch {}
+  }
+}
+
+async function saveMyTelegram() {
+  if (!myTelegramChatIdInput) return;
+  const chatId = myTelegramChatIdInput.value.trim();
+
+  try {
+    const res = await fetch("/api/settings/telegram", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ telegramChatId: chatId }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showMessage(data.error || "Failed to save Telegram settings.", "error");
+      return;
+    }
+
+    myTelegramChatIdInput.value = data.telegramChatId || "";
+    showMessage(chatId ? "Telegram chat ID saved." : "Telegram notifications disabled.");
+  } catch {
+    showMessage("Failed to save Telegram settings.", "error");
+  }
+}
+
 async function loadBannedIps() {
   if (!currentUser) return;
 
@@ -537,12 +580,14 @@ async function init() {
   try {
     await loadCurrentUser();
     loadPrefs();
+    await loadMyTelegram();
     await loadSecurityPolicy();
     await loadTlsSettings();
     await loadBannedIps();
 
     passwordForm.addEventListener("submit", updatePassword);
     prefsForm.addEventListener("submit", savePrefs);
+    if (saveMyTelegramBtn) saveMyTelegramBtn.addEventListener("click", saveMyTelegram);
     securityForm.addEventListener("submit", saveSecurityPolicy);
     tlsForm.addEventListener("submit", saveTlsSettings);
     tlsCertbotAutoBtn.addEventListener("click", runCertbotAutoSetup);

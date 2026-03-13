@@ -177,6 +177,15 @@ async function postTelegramNotification(
   const chatId = (config.telegramChatId || "").trim();
   if (!token || !chatId) return;
 
+  await sendTelegramToChat(token, chatId, record, screenshot);
+}
+
+async function sendTelegramToChat(
+  token: string,
+  chatId: string,
+  record: NotificationRecord,
+  screenshot?: NotificationScreenshotRecord | null,
+): Promise<void> {
   const text = `≡ƒöö Notification\nTitle: ${record.title}\nKeyword: ${record.keyword || "-"}\nClient: ${record.clientId}\nUser: ${record.user || "unknown"}\nHost: ${record.host || "unknown"}\nProcess: ${record.process || "unknown"}`;
   try {
     if (screenshot?.bytes?.length) {
@@ -198,17 +207,51 @@ async function postTelegramNotification(
       body: JSON.stringify({ chat_id: chatId, text }),
     });
   } catch (err) {
-    logger.warn("[notify] telegram delivery failed", err);
+    logger.warn(`[notify] telegram delivery to chat ${chatId} failed`, err);
   }
+}
+
+export type PerUserTelegramRecipient = {
+  userId: number;
+  chatId: string;
+  canAccessClient: boolean;
+};
+
+async function postPerUserTelegramNotifications(
+  record: NotificationRecord,
+  getNotificationConfig: () => any,
+  getPerUserRecipients: (clientId: string) => PerUserTelegramRecipient[],
+  screenshot?: NotificationScreenshotRecord | null,
+): Promise<void> {
+  const config = getNotificationConfig();
+  if (!config.telegramEnabled) return;
+  const token = (config.telegramBotToken || "").trim();
+  if (!token) return;
+
+  const recipients = getPerUserRecipients(record.clientId);
+  const promises = recipients
+    .filter((r) => r.canAccessClient && r.chatId)
+    .map((r) => sendTelegramToChat(token, r.chatId, record, screenshot));
+
+  await Promise.allSettled(promises);
 }
 
 export async function deliverNotificationWithScreenshot(
   record: NotificationRecord,
   getNotificationConfig: () => any,
+  getPerUserRecipients?: (clientId: string) => PerUserTelegramRecipient[],
 ): Promise<void> {
   const screenshot = await waitForNotificationScreenshot(record.id);
-  await Promise.allSettled([
+  const deliveries: Promise<void>[] = [
     postNotificationWebhook(record, getNotificationConfig, screenshot),
     postTelegramNotification(record, getNotificationConfig, screenshot),
-  ]);
+  ];
+
+  if (getPerUserRecipients) {
+    deliveries.push(
+      postPerUserTelegramNotifications(record, getNotificationConfig, getPerUserRecipients, screenshot),
+    );
+  }
+
+  await Promise.allSettled(deliveries);
 }

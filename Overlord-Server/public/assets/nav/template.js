@@ -62,7 +62,7 @@ export function mountNav(host) {
         <a
           href="/notifications"
           id="notifications-link"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
+          class="hidden inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
           ><i class="fa-solid fa-bell text-yellow-400"></i> Notifications</a
         >
         <a
@@ -128,5 +128,6 @@ export function mountNav(host) {
     pluginsLink: document.getElementById("plugins-link"),
     scriptsLink: document.getElementById("scripts-link"),
     logsLink: document.getElementById("logs-link"),
+    notificationsLink: document.getElementById("notifications-link"),
   };
 }

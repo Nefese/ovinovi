@@ -6,6 +6,7 @@ import { deleteBuild, getAllBuilds, getBuild } from "../../db";
 import { requirePermission } from "../../rbac";
 import { logger } from "../../logger";
 import path from "path";
+import fs from "fs";
 import { resolveRuntimeRoot } from "../runtime-paths";
 
 type RequestIpProvider = {
@@ -35,7 +36,7 @@ export async function handleBuildRoutes(
     }
 
     if (req.method === "POST" && url.pathname === "/api/build/start") {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
       const body = await req.json();
       const {
@@ -131,22 +132,40 @@ export async function handleBuildRoutes(
         persistenceMethod: safePersistenceMethod,
         hideConsole: !!hideConsole,
         noPrinting: safeNoPrinting,
+        builtByUserId: user.userId,
       });
 
       return Response.json({ buildId });
     }
 
     if (req.method === "GET" && url.pathname === "/api/build/list") {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
       const builds = getAllBuilds();
       return Response.json({ builds });
     }
 
     if (req.method === "DELETE" && url.pathname.match(/^\/api\/build\/(.+)\/delete$/)) {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
-      const buildId = url.pathname.split("/")[3];
+      const buildId = decodeURIComponent(url.pathname.split("/")[3]);
+
+      const build = getBuild(buildId);
+      if (build?.files) {
+        const rootDir = resolveRuntimeRoot();
+        const outDir = path.join(rootDir, "dist-clients");
+        for (const file of build.files) {
+          try {
+            const filePath = path.join(outDir, file.filename);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              logger.info(`[build:delete] Removed file: ${filePath}`);
+            }
+          } catch (err) {
+            logger.warn(`[build:delete] Failed to remove file ${file.filename}:`, err);
+          }
+        }
+      }
 
       buildManager.deleteBuildStream(buildId);
       deleteBuild(buildId);
@@ -161,11 +180,12 @@ export async function handleBuildRoutes(
         success: true,
       });
 
+      logger.info(`[build:delete] Build ${buildId.substring(0, 8)} deleted by ${user.username}`);
       return Response.json({ success: true });
     }
 
     if (req.method === "GET" && url.pathname.match(/^\/api\/build\/(.+)\/stream$/)) {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
       const buildId = url.pathname.split("/")[3];
       const build = buildManager.getBuildStream(buildId);
@@ -219,7 +239,7 @@ export async function handleBuildRoutes(
     }
 
     if (req.method === "GET" && url.pathname.match(/^\/api\/build\/(.+)\/info$/)) {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
       const buildId = url.pathname.split("/")[3];
       const build = buildManager.getBuildStream(buildId);
@@ -248,7 +268,7 @@ export async function handleBuildRoutes(
     }
 
     if (req.method === "GET" && url.pathname.match(/^\/api\/build\/download\//)) {
-      requirePermission(user, "clients:control");
+      requirePermission(user, "clients:build");
 
       const rawName = url.pathname.split("/api/build/download/")[1] || "";
       let fileName = rawName;

@@ -67,9 +67,15 @@ db.run(`
     status TEXT NOT NULL,
     start_time INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
-    files TEXT NOT NULL
+    files TEXT NOT NULL,
+    build_tag TEXT,
+    built_by_user_id INTEGER
   );
 `);
+
+try { db.run(`ALTER TABLE builds ADD COLUMN build_tag TEXT`); } catch {}
+try { db.run(`ALTER TABLE builds ADD COLUMN built_by_user_id INTEGER`); } catch {}
+db.run(`CREATE INDEX IF NOT EXISTS idx_builds_build_tag ON builds(build_tag);`);
 
 db.run(`
   CREATE TABLE IF NOT EXISTS notification_screenshots (
@@ -566,17 +572,21 @@ export interface BuildRecord {
     version?: string;
     size: number;
   }>;
+  buildTag?: string;
+  builtByUserId?: number;
 }
 
 export function saveBuild(build: BuildRecord) {
   db.run(
-    `INSERT OR REPLACE INTO builds (id, status, start_time, expires_at, files)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO builds (id, status, start_time, expires_at, files, build_tag, built_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     build.id,
     build.status,
     build.startTime,
     build.expiresAt,
     JSON.stringify(build.files),
+    build.buildTag || null,
+    build.builtByUserId || null,
   );
 }
 
@@ -590,6 +600,23 @@ export function getBuild(id: string): BuildRecord | null {
     startTime: row.start_time,
     expiresAt: row.expires_at,
     files: JSON.parse(row.files),
+    buildTag: row.build_tag || undefined,
+    builtByUserId: row.built_by_user_id || undefined,
+  };
+}
+
+export function getBuildByTag(buildTag: string): BuildRecord | null {
+  const row = db.query<any>(`SELECT * FROM builds WHERE build_tag = ?`).get(buildTag);
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    status: row.status,
+    startTime: row.start_time,
+    expiresAt: row.expires_at,
+    files: JSON.parse(row.files),
+    buildTag: row.build_tag || undefined,
+    builtByUserId: row.built_by_user_id || undefined,
   };
 }
 
@@ -603,6 +630,8 @@ export function getAllBuilds(): BuildRecord[] {
     startTime: row.start_time,
     expiresAt: row.expires_at,
     files: JSON.parse(row.files),
+    buildTag: row.build_tag || undefined,
+    builtByUserId: row.built_by_user_id || undefined,
   }));
 }
 

@@ -5,6 +5,7 @@ export type Permission =
   | "users:manage"
   | "clients:control"
   | "clients:view"
+  | "clients:build"
   | "audit:view";
 
 export function checkPermission(
@@ -12,7 +13,7 @@ export function checkPermission(
   permission: Permission,
 ): boolean {
   if (!user) return false;
-  return hasPermission(user.role, permission);
+  return hasPermission(user.role, permission, user.userId);
 }
 
 export function checkAnyPermission(
@@ -20,7 +21,7 @@ export function checkAnyPermission(
   permissions: Permission[],
 ): boolean {
   if (!user) return false;
-  return permissions.some((p) => hasPermission(user.role, p));
+  return permissions.some((p) => hasPermission(user.role, p, user.userId));
 }
 
 export function checkAllPermissions(
@@ -28,7 +29,7 @@ export function checkAllPermissions(
   permissions: Permission[],
 ): boolean {
   if (!user) return false;
-  return permissions.every((p) => hasPermission(user.role, p));
+  return permissions.every((p) => hasPermission(user.role, p, user.userId));
 }
 
 export function requireAuth(user: AuthenticatedUser | null): AuthenticatedUser {
@@ -72,6 +73,8 @@ export function getPermissionDescription(permission: Permission): string {
       return "Control clients (execute commands, desktop, console, files)";
     case "clients:view":
       return "View connected clients";
+    case "clients:build":
+      return "Build client binaries";
     case "audit:view":
       return "View audit logs";
     default:
@@ -99,6 +102,7 @@ export function getRolePermissions(role: UserRole): Permission[] {
   if (hasPermission(role, "clients:control"))
     permissions.push("clients:control");
   if (hasPermission(role, "clients:view")) permissions.push("clients:view");
+  if (hasPermission(role, "clients:build")) permissions.push("clients:build");
   if (hasPermission(role, "audit:view")) permissions.push("audit:view");
 
   return permissions;

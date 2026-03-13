@@ -388,6 +388,7 @@ func runSession(ctx context.Context, cancel context.CancelFunc, conn *websocket.
 		Monitors:    capture.MonitorCount(),
 		MonitorInfo: toWireMonitorInfo(capture.MonitorInfos()),
 		Country:     cfg.Country,
+		BuildTag:    cfg.BuildTag,
 	}
 
 	if err := wire.WriteMsg(ctx, env.Conn, hello); err != nil {

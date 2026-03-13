@@ -112,6 +112,10 @@ async function checkAuth() {
       document.getElementById("build-link")?.classList.remove("hidden");
     }
 
+    if (data.canBuild) {
+      document.getElementById("build-link")?.classList.remove("hidden");
+    }
+
     if (data.role === "viewer") {
       alert("Access denied. Operator or Admin role required.");
       window.location.href = "/";

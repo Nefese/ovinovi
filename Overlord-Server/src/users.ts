@@ -22,6 +22,8 @@ export interface User {
   created_by: string | null;
   must_change_password: number;
   client_scope: ClientAccessScope;
+  can_build: number;
+  telegram_chat_id: string | null;
 }
 
 export interface UserInfo {
@@ -32,6 +34,8 @@ export interface UserInfo {
   last_login: number | null;
   created_by: string | null;
   client_scope: ClientAccessScope;
+  can_build: number;
+  telegram_chat_id: string | null;
 }
 
 export interface UserClientAccessRule {
@@ -97,6 +101,34 @@ try {
   logger.error("[users] Failed to normalize admin client_scope:", err);
 }
 
+try {
+  db.exec(
+    `ALTER TABLE users ADD COLUMN can_build INTEGER NOT NULL DEFAULT 0`,
+  );
+  logger.info("[users] Added can_build column to existing database");
+
+  try {
+    db.exec(`UPDATE users SET can_build=1 WHERE role='admin' OR role='operator'`);
+  } catch (err: any) {
+    logger.error("[users] Failed to backfill admin/operator can_build:", err);
+  }
+} catch (err: any) {
+  if (!err.message?.includes("duplicate column name")) {
+    logger.error("[users] Migration error:", err);
+  }
+}
+
+try {
+  db.exec(
+    `ALTER TABLE users ADD COLUMN telegram_chat_id TEXT DEFAULT NULL`,
+  );
+  logger.info("[users] Added telegram_chat_id column to existing database");
+} catch (err: any) {
+  if (!err.message?.includes("duplicate column name")) {
+    logger.error("[users] Migration error:", err);
+  }
+}
+
 const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as {
   count: number;
 };
@@ -112,8 +144,8 @@ if (userCount.count === 0) {
   });
 
   db.prepare(
-    "INSERT INTO users (username, password_hash, role, created_at, created_by, must_change_password, client_scope) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(initialUsername, defaultPassword, "admin", Date.now(), "system", 1, "all");
+    "INSERT INTO users (username, password_hash, role, created_at, created_by, must_change_password, client_scope, can_build) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(initialUsername, defaultPassword, "admin", Date.now(), "system", 1, "all", 1);
 
   const createdUser = db
     .prepare("SELECT * FROM users WHERE username = ?")
@@ -149,7 +181,7 @@ export function getUserByUsername(username: string): User | null {
 export function listUsers(): UserInfo[] {
   const users = db
     .prepare(
-      "SELECT id, username, role, created_at, last_login, created_by, client_scope FROM users ORDER BY created_at DESC",
+      "SELECT id, username, role, created_at, last_login, created_by, client_scope, can_build, telegram_chat_id FROM users ORDER BY created_at DESC",
     )
     .all() as UserInfo[];
   return users;
@@ -328,9 +360,9 @@ export async function createUser(
 
     const result = db
       .prepare(
-        "INSERT INTO users (username, password_hash, role, created_at, created_by, client_scope) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (username, password_hash, role, created_at, created_by, client_scope, can_build) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(username, passwordHash, role, Date.now(), createdBy, role === "admin" ? "all" : "none");
+      .run(username, passwordHash, role, Date.now(), createdBy, role === "admin" ? "all" : "none", role === "admin" || role === "operator" ? 1 : 0);
 
     return { success: true, userId: result.lastInsertRowid as number };
   } catch (err: any) {
@@ -440,11 +472,17 @@ export function canViewClients(role: UserRole): boolean {
   return role === "admin";
 }
 
+export function canBuildClients(userId: number, role: UserRole): boolean {
+  if (role === "admin") return true;
+  const user = getUserById(userId);
+  return user ? user.can_build === 1 : false;
+}
+
 export function canViewAuditLogs(role: UserRole): boolean {
   return role === "admin";
 }
 
-export function hasPermission(role: UserRole, permission: string): boolean {
+export function hasPermission(role: UserRole, permission: string, userId?: number): boolean {
   switch (permission) {
     case "users:manage":
       return canManageUsers(role);
@@ -452,9 +490,53 @@ export function hasPermission(role: UserRole, permission: string): boolean {
       return canControlClients(role);
     case "clients:view":
       return canViewClients(role);
+    case "clients:build":
+      if (userId !== undefined) return canBuildClients(userId, role);
+      return role === "admin" || role === "operator";
     case "audit:view":
       return canViewAuditLogs(role);
     default:
       return false;
   }
+}
+
+export function setUserCanBuild(
+  userId: number,
+  canBuild: boolean,
+): { success: boolean; error?: string } {
+  try {
+    db.prepare("UPDATE users SET can_build = ? WHERE id = ?").run(canBuild ? 1 : 0, userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserCanBuild error:", err);
+    return { success: false, error: err.message || "Failed to update build permission" };
+  }
+}
+
+export function setUserTelegramChatId(
+  userId: number,
+  chatId: string | null,
+): { success: boolean; error?: string } {
+  try {
+    db.prepare("UPDATE users SET telegram_chat_id = ? WHERE id = ?").run(chatId, userId);
+    return { success: true };
+  } catch (err: any) {
+    logger.error("[users] setUserTelegramChatId error:", err);
+    return { success: false, error: err.message || "Failed to update Telegram chat ID" };
+  }
+}
+
+export function getUserTelegramChatId(userId: number): string | null {
+  const row = db
+    .prepare("SELECT telegram_chat_id FROM users WHERE id = ?")
+    .get(userId) as { telegram_chat_id?: string | null } | undefined;
+  return row?.telegram_chat_id || null;
+}
+
+export function getUsersWithTelegramChatId(): Array<{ id: number; username: string; role: UserRole; client_scope: ClientAccessScope; telegram_chat_id: string }> {
+  return db
+    .prepare(
+      "SELECT id, username, role, client_scope, telegram_chat_id FROM users WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id != ''",
+    )
+    .all() as any[];
 }

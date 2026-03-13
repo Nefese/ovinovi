@@ -26,6 +26,7 @@ var DefaultMutex = ""
 var DefaultID = ""
 var DefaultCountry = ""
 var DefaultAgentToken = ""
+var DefaultBuildTag = ""
 
 const settingsFile = "config/settings.json"
 const serverIndexFile = "config/server_index.json"
@@ -60,6 +61,7 @@ type Config struct {
 	TLSClientCert         string
 	TLSClientKey          string
 	AgentToken            string
+	BuildTag              string
 }
 
 func Load() Config {
@@ -159,6 +161,7 @@ func Load() Config {
 		TLSClientCert:         tlsClientCert,
 		TLSClientKey:          tlsClientKey,
 		AgentToken:            agentToken,
+		BuildTag:              strings.TrimSpace(DefaultBuildTag),
 	}
 }
 

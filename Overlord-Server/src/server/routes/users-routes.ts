@@ -14,6 +14,7 @@ import {
   removeUserClientAccessRule,
   setUserClientAccessRule,
   setUserClientAccessScope,
+  setUserCanBuild,
   updateUserPassword,
   updateUserRole,
 } from "../../users";
@@ -242,6 +243,13 @@ export async function handleUsersRoutes(
         return Response.json({ error: result.error }, { status: 400 });
       }
 
+      if (access === "allow") {
+        const currentScope = getUserClientAccessScope(userId);
+        if (currentScope === "none") {
+          setUserClientAccessScope(userId, "allowlist");
+        }
+      }
+
       const ip = server.requestIP(req)?.address || "unknown";
       logAudit({
         timestamp: Date.now(),
@@ -314,6 +322,34 @@ export async function handleUsersRoutes(
         return Response.json({ success: true });
       }
       return Response.json({ error: result.error }, { status: 400 });
+    }
+
+    if (req.method === "PUT" && url.pathname.match(/^\/api\/users\/\d+\/can-build$/)) {
+      const authedUser = requirePermission(user, "users:manage");
+      const userId = parseInt(url.pathname.split("/")[3]);
+      const targetUser = getUserById(userId);
+      if (!targetUser) {
+        return Response.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const body = await req.json();
+      const canBuild = !!body?.canBuild;
+      const result = setUserCanBuild(userId, canBuild);
+      if (!result.success) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+
+      const ip = server.requestIP(req)?.address || "unknown";
+      logAudit({
+        timestamp: Date.now(),
+        username: authedUser.username,
+        ip,
+        action: AuditAction.COMMAND,
+        details: `${canBuild ? "Granted" : "Revoked"} build permission for ${targetUser.username}`,
+        success: true,
+      });
+
+      return Response.json({ success: true, canBuild });
     }
 
     return new Response("Not found", { status: 404 });

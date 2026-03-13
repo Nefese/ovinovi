@@ -3,7 +3,7 @@ import { decodeMessage, encodeMessage, type WireMessage, type PluginManifest } f
 import { logger } from "./logger";
 import { fileURLToPath } from "url";
 import path from "path";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getBuildByTag, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, clearNotificationScreenshots, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { authenticateRequest } from "./auth";
 import { loadConfig, getConfig } from "./config";
 import { flushAuditLogsSync } from "./auditLog";
-import { getUserById } from "./users";
+import { getUserById, getUsersWithTelegramChatId, canUserAccessClient, setUserClientAccessRule, setUserClientAccessScope, getUserClientAccessScope } from "./users";
 import { requireAuth, requirePermission } from "./rbac";
 import { metrics } from "./metrics";
 import { ensureDataDir } from "./paths";
@@ -46,6 +46,7 @@ import {
   takePendingNotificationScreenshot,
   type NotificationRecord,
   type PendingNotificationScreenshot,
+  type PerUserTelegramRecipient,
 } from "./server/notification-delivery";
 import {
   ensurePluginExtracted as ensurePluginExtractedFromRoot,
@@ -226,8 +227,17 @@ const storeNotificationScreenshotForPending = (
   width?: number,
   height?: number,
 ) => storeNotificationScreenshot(notificationHistory, pending, bytes, format, width, height);
-const deliverNotificationWithScreenshotForRecord = (record: NotificationRecord) =>
-  deliverNotificationWithScreenshot(record, getNotificationConfig);
+const deliverNotificationWithScreenshotForRecord = (record: NotificationRecord) => {
+  const getPerUserRecipients = (clientId: string): PerUserTelegramRecipient[] => {
+    const usersWithTelegram = getUsersWithTelegramChatId();
+    return usersWithTelegram.map((u) => ({
+      userId: u.id,
+      chatId: u.telegram_chat_id,
+      canAccessClient: canUserAccessClient(u.id, u.role, clientId),
+    }));
+  };
+  return deliverNotificationWithScreenshot(record, getNotificationConfig, getPerUserRecipients);
+};
 
 const notificationPluginHandlers = createNotificationPluginHandlers({
   notificationHistory,
@@ -356,6 +366,28 @@ async function startServer() {
     },
   };
 
+  function handleBuildTagConnection(clientId: string, buildTagValue: string) {
+    if (!buildTagValue) return;
+    const build = getBuildByTag(buildTagValue);
+    if (!build || !build.builtByUserId) return;
+
+    const userId = build.builtByUserId;
+    const user = getUserById(userId);
+    if (!user) return;
+
+    if (user.role === "admin") return;
+
+    const currentScope = getUserClientAccessScope(userId);
+    if (currentScope === "none") {
+      setUserClientAccessScope(userId, "allowlist");
+    }
+
+    if (currentScope === "none" || currentScope === "allowlist") {
+      setUserClientAccessRule(userId, clientId, "allow");
+      logger.info(`[build-tag] Auto-added client ${clientId} to user ${user.username}'s allowlist (build: ${build.id.substring(0, 8)})`);
+    }
+  }
+
   const lifecycleDeps = {
     maxClientPayloadBytes: MAX_WS_MESSAGE_BYTES_CLIENT,
     maxViewerPayloadBytes: MAX_WS_MESSAGE_BYTES_VIEWER,
@@ -412,6 +444,7 @@ async function startServer() {
     notifyConsoleClosed,
     clearPendingNotificationScreenshots: notificationPluginHandlers.clearPendingNotificationScreenshots,
     notifyRemoteDesktopStatus,
+    handleBuildTagConnection,
   };
 
   const server = Bun.serve<SocketData>({

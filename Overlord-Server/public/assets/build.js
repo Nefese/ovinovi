@@ -141,7 +141,7 @@ async function init() {
       document.getElementById("deploy-link")?.classList.remove("hidden");
     }
 
-    if (data.role === "admin" || data.role === "operator") {
+    if (data.role === "admin" || data.role === "operator" || data.canBuild) {
       buildLink?.classList.remove("hidden");
     }
 
@@ -149,10 +149,10 @@ async function init() {
       scriptsLink?.classList.remove("hidden");
     }
 
-    if (data.role !== "admin" && data.role !== "operator") {
+    if (data.role !== "admin" && data.role !== "operator" && !data.canBuild) {
       buildBtn.disabled = true;
       buildBtn.innerHTML =
-        '<i class="fa-solid fa-lock"></i> <span>Build requires admin/operator role</span>';
+        '<i class="fa-solid fa-lock"></i> <span>Build requires permission</span>';
     }
 
     await loadServerVersion();
@@ -539,13 +539,14 @@ async function deleteBuild(buildId) {
   }
 
   try {
-    const res = await fetch(`/api/build/${buildId}/delete`, {
+    const res = await fetch(`/api/build/${encodeURIComponent(buildId)}/delete`, {
       method: "DELETE",
       credentials: "include",
     });
 
     if (!res.ok) {
-      throw new Error("Failed to delete build");
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to delete build");
     }
 
     const buildElement = document.getElementById(`build-${buildId}`);

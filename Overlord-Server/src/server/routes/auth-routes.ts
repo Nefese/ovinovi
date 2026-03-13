@@ -170,6 +170,8 @@ export async function handleAuthRoutes(
         role: user.role,
         userId: user.userId,
         mustChangePassword: dbUser ? Boolean(dbUser.must_change_password) : false,
+        canBuild: dbUser ? Boolean(dbUser.can_build) : false,
+        telegramChatId: dbUser?.telegram_chat_id || "",
       }),
       {
         headers: { "Content-Type": "application/json" },
