@@ -141,7 +141,7 @@ export async function handleBuildRoutes(
     if (req.method === "GET" && url.pathname === "/api/build/list") {
       requirePermission(user, "clients:build");
 
-      const builds = getAllBuilds();
+      const builds = getAllBuilds(user.userId, user.role);
       return Response.json({ builds });
     }
 

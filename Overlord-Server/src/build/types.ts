@@ -6,6 +6,7 @@ export type BuildStream = {
   expiresAt: number;
   files: { name: string; size: number; platform?: string }[];
   updates?: any[];
+  userId?: number;
 };
 
 export type BuildConfig = {

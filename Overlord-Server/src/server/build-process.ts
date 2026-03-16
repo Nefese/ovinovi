@@ -102,6 +102,7 @@ export async function startBuildProcess(
     startTime: now,
     expiresAt: now + SEVEN_DAYS_MS,
     files: [],
+    userId: config.builtByUserId,
   };
 
   buildManager.addBuildStream(buildId, build);
